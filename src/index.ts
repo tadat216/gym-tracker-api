@@ -7,10 +7,13 @@ import exercisesRouter from "./routes/exercises";
 import workoutsRouter from "./routes/workouts";
 import workoutExercisesRouter from "./routes/workout-exercises";
 import setsRouter from "./routes/sets";
+import mcpRouter from "./routes/mcp";
 
 const app = new Hono();
 
 app.get("/", (c) => c.json({ status: "ok" }));
+
+app.route("/mcp", mcpRouter);
 
 app.use("/*", authMiddleware);
 
