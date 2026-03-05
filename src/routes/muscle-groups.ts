@@ -1,39 +1,33 @@
 import { Hono } from "hono";
-import { eq } from "drizzle-orm";
-import { db } from "../db/index";
-import { muscle_groups } from "../db/schema";
+import {
+  listMuscleGroups,
+  getMuscleGroup,
+  createMuscleGroup,
+  updateMuscleGroup,
+  deleteMuscleGroup,
+} from "../services/muscle-groups";
 
 const router = new Hono();
 
 router.post("/", async (c) => {
   const body = await c.req.json();
-  const [row] = db.insert(muscle_groups).values(body).returning().all();
-  return c.json(row, 201);
+  return c.json(createMuscleGroup(body), 201);
 });
 
-router.get("/", (c) => {
-  const rows = db.select().from(muscle_groups).all();
-  return c.json(rows);
-});
+router.get("/", (c) => c.json(listMuscleGroups()));
 
 router.get("/:id", (c) => {
-  const id = Number(c.req.param("id"));
-  const [row] = db.select().from(muscle_groups).where(eq(muscle_groups.id, id)).all();
-  if (!row) return c.json({ error: "Not found" }, 404);
-  return c.json(row);
+  const row = getMuscleGroup(Number(c.req.param("id")));
+  return row ? c.json(row) : c.json({ error: "Not found" }, 404);
 });
 
 router.patch("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  const body = await c.req.json();
-  const [row] = db.update(muscle_groups).set(body).where(eq(muscle_groups.id, id)).returning().all();
-  if (!row) return c.json({ error: "Not found" }, 404);
-  return c.json(row);
+  const row = updateMuscleGroup(Number(c.req.param("id")), await c.req.json());
+  return row ? c.json(row) : c.json({ error: "Not found" }, 404);
 });
 
 router.delete("/:id", (c) => {
-  const id = Number(c.req.param("id"));
-  db.delete(muscle_groups).where(eq(muscle_groups.id, id)).run();
+  deleteMuscleGroup(Number(c.req.param("id")));
   return new Response(null, { status: 204 });
 });
 
