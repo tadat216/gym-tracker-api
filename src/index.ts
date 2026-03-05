@@ -15,7 +15,11 @@ app.get("/", (c) => c.json({ status: "ok" }));
 
 app.route("/mcp", mcpRouter);
 
-app.use("/*", authMiddleware);
+app.use("/muscle-groups/*", authMiddleware);
+app.use("/exercises/*", authMiddleware);
+app.use("/workouts/*", authMiddleware);
+app.use("/workout-exercises/*", authMiddleware);
+app.use("/sets/*", authMiddleware);
 
 app.route("/muscle-groups", muscleGroupsRouter);
 app.route("/exercises", exercisesRouter);
