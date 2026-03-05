@@ -11,12 +11,12 @@ A personal gym tracker REST API that integrates with Claude AI chat. Claude chat
 - **Runtime**: Node.js + TypeScript (CommonJS)
 - **Framework**: Hono with `@hono/node-server`
 - **ORM**: Drizzle ORM + `better-sqlite3` (SQLite)
-- **Dev execution**: `tsx watch`
+- **Dev execution**: `tsx watch` + `dotenv` for local `.env` loading
 
 ## Commands
 
 ```bash
-npm run dev       # Start dev server with hot reload
+npm run dev       # Start dev server with hot reload (loads .env automatically)
 npm run build     # Compile TypeScript → dist/
 npm start         # Run compiled build (production)
 npm run seed      # Seed muscle groups and exercises (run once)
@@ -29,13 +29,21 @@ npx drizzle-kit studio  # Open local DB GUI
 
 ```
 src/
-  index.ts        # Hono app entry point
+  index.ts          # Hono app entry point — mounts middleware + all routers
+  middleware/
+    auth.ts         # Bearer token auth (API_KEY env var)
+  routes/
+    muscle-groups.ts          # Full CRUD
+    exercises.ts              # Full CRUD + ?muscle_group_id= filter
+    workouts.ts               # C/R/D + POST /:id/exercises (nested)
+    workout-exercises.ts      # DELETE /:id + POST /:weId/sets (nested)
+    sets.ts                   # PATCH /:id, DELETE /:id
   db/
-    index.ts      # SQLite connection (WAL mode, foreign keys ON)
-    schema.ts     # All Drizzle table definitions
-    seed.ts       # One-time seed for muscle groups + exercises
-drizzle/          # Generated SQL migration files
-drizzle.config.ts # Drizzle config (schema path, migrations output)
+    index.ts        # SQLite connection (WAL mode, foreign keys ON)
+    schema.ts       # All Drizzle table definitions
+    seed.ts         # One-time seed for muscle groups + exercises
+drizzle/            # Generated SQL migration files
+drizzle.config.ts   # Drizzle config (schema path, migrations output)
 ```
 
 ### Data Model
@@ -59,11 +67,24 @@ All FK relationships use `onDelete: "cascade"`.
 
 **Database**: `db` is exported from `src/db/index.ts` and imported directly in route handlers. No repository layer.
 
+**Drizzle query patterns**:
+```typescript
+import { eq } from "drizzle-orm";
+
+db.select().from(table).all()
+db.select().from(table).where(eq(table.id, id)).all()   // returns array, check [0]
+db.insert(table).values(body).returning().all()          // returns [row]
+db.update(table).set(body).where(eq(table.id, id)).returning().all()
+db.delete(table).where(eq(table.id, id)).run()
+```
+
 **Schema changes**: Always run `npm run generate` then `npm run migrate` — never edit migration files manually.
 
-**Claude Integration**: Endpoints are called as tools from Claude AI chat. Responses should be flat JSON with enough context for Claude to generate natural-language replies.
+**Routes**: Each resource has its own file under `src/routes/`. Nested actions (e.g. adding an exercise to a workout) are defined on the parent router. Auth middleware is applied globally in `index.ts` — `GET /` is the only public endpoint.
 
-**Authentication**: Static API key (`API_KEY` env var) via `Authorization: Bearer <key>` header — to be enforced in middleware.
+**Claude Integration**: Endpoints are called as tools from Claude AI chat. Responses are flat JSON. Nested/rich responses belong in separate detail endpoints, not the basic CRUD endpoints.
+
+**DELETE responses**: Use `return new Response(null, { status: 204 })`.
 
 ## Environment Variables
 
@@ -72,6 +93,8 @@ PORT=3000
 DATABASE_URL=./gym.db   # Use /data/gym.db on Railway with a Volume mount
 API_KEY=<secret>
 ```
+
+Create a `.env` file locally — `dotenv/config` is imported at the top of `src/index.ts` and loads it automatically. On Railway, env vars are set in the dashboard and `.env` is not used.
 
 ## Railway Deployment
 
