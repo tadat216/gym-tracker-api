@@ -2,15 +2,16 @@ import { Hono } from "hono";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
-import { db } from "../db/index";
+import { listMuscleGroups } from "../services/muscle-groups";
+import { listExercises } from "../services/exercises";
 import {
-  muscle_groups,
-  exercises,
-  workouts,
-  workout_exercises,
-  workout_exercises_details,
-} from "../db/schema";
+  listWorkouts,
+  createWorkout,
+  getWorkoutDetail,
+  addExerciseToWorkout,
+} from "../services/workouts";
+import { addSet } from "../services/workout-exercises";
+import { updateSet, deleteSet } from "../services/sets";
 
 const router = new Hono();
 
@@ -19,7 +20,6 @@ const mcpServer = new McpServer({
   version: "1.0.0",
 });
 
-// --- Tool: list_muscle_groups ---
 mcpServer.registerTool(
   "list_muscle_groups",
   {
@@ -27,12 +27,11 @@ mcpServer.registerTool(
     inputSchema: z.object({}),
   },
   async () => {
-    const rows = db.select().from(muscle_groups).all();
+    const rows = listMuscleGroups();
     return { content: [{ type: "text", text: JSON.stringify(rows) }] };
   }
 );
 
-// --- Tool: list_exercises ---
 mcpServer.registerTool(
   "list_exercises",
   {
@@ -46,18 +45,11 @@ mcpServer.registerTool(
     }),
   },
   async ({ muscle_group_id }) => {
-    const rows = muscle_group_id
-      ? db
-          .select()
-          .from(exercises)
-          .where(eq(exercises.muscle_group_id, muscle_group_id))
-          .all()
-      : db.select().from(exercises).all();
+    const rows = listExercises(muscle_group_id);
     return { content: [{ type: "text", text: JSON.stringify(rows) }] };
   }
 );
 
-// --- Tool: list_workouts ---
 mcpServer.registerTool(
   "list_workouts",
   {
@@ -65,12 +57,11 @@ mcpServer.registerTool(
     inputSchema: z.object({}),
   },
   async () => {
-    const rows = db.select().from(workouts).all();
+    const rows = listWorkouts();
     return { content: [{ type: "text", text: JSON.stringify(rows) }] };
   }
 );
 
-// --- Tool: get_workout_detail ---
 mcpServer.registerTool(
   "get_workout_detail",
   {
@@ -81,36 +72,12 @@ mcpServer.registerTool(
     }),
   },
   async ({ workout_id }) => {
-    const [workout] = db
-      .select()
-      .from(workouts)
-      .where(eq(workouts.id, workout_id))
-      .all();
-    if (!workout) {
-      return { content: [{ type: "text", text: "Workout not found" }] };
-    }
-    const wes = db
-      .select()
-      .from(workout_exercises)
-      .where(eq(workout_exercises.workout_id, workout_id))
-      .all();
-    const detail = wes.map((we) => ({
-      ...we,
-      sets: db
-        .select()
-        .from(workout_exercises_details)
-        .where(eq(workout_exercises_details.workout_exercise_id, we.id))
-        .all(),
-    }));
-    return {
-      content: [
-        { type: "text", text: JSON.stringify({ ...workout, exercises: detail }) },
-      ],
-    };
+    const detail = getWorkoutDetail(workout_id);
+    if (!detail) return { content: [{ type: "text", text: "Workout not found" }] };
+    return { content: [{ type: "text", text: JSON.stringify(detail) }] };
   }
 );
 
-// --- Tool: create_workout ---
 mcpServer.registerTool(
   "create_workout",
   {
@@ -120,12 +87,11 @@ mcpServer.registerTool(
     }),
   },
   async ({ date }) => {
-    const [row] = db.insert(workouts).values({ date }).returning().all();
+    const row = createWorkout(date);
     return { content: [{ type: "text", text: JSON.stringify(row) }] };
   }
 );
 
-// --- Tool: add_exercise_to_workout ---
 mcpServer.registerTool(
   "add_exercise_to_workout",
   {
@@ -137,16 +103,11 @@ mcpServer.registerTool(
     }),
   },
   async ({ workout_id, exercise_id }) => {
-    const [row] = db
-      .insert(workout_exercises)
-      .values({ workout_id, exercise_id })
-      .returning()
-      .all();
+    const row = addExerciseToWorkout(workout_id, exercise_id);
     return { content: [{ type: "text", text: JSON.stringify(row) }] };
   }
 );
 
-// --- Tool: log_set ---
 mcpServer.registerTool(
   "log_set",
   {
@@ -161,16 +122,11 @@ mcpServer.registerTool(
     }),
   },
   async ({ workout_exercise_id, rep_count, weight }) => {
-    const [row] = db
-      .insert(workout_exercises_details)
-      .values({ workout_exercise_id, rep_count, weight })
-      .returning()
-      .all();
+    const row = addSet(workout_exercise_id, rep_count, weight);
     return { content: [{ type: "text", text: JSON.stringify(row) }] };
   }
 );
 
-// --- Tool: update_set ---
 mcpServer.registerTool(
   "update_set",
   {
@@ -182,21 +138,15 @@ mcpServer.registerTool(
     }),
   },
   async ({ set_id, rep_count, weight }) => {
-    const updates: Record<string, number> = {};
-    if (rep_count !== undefined) updates.rep_count = rep_count;
-    if (weight !== undefined) updates.weight = weight;
-    const [row] = db
-      .update(workout_exercises_details)
-      .set(updates)
-      .where(eq(workout_exercises_details.id, set_id))
-      .returning()
-      .all();
+    const data: Partial<{ rep_count: number; weight: number }> = {};
+    if (rep_count !== undefined) data.rep_count = rep_count;
+    if (weight !== undefined) data.weight = weight;
+    const row = updateSet(set_id, data);
     if (!row) return { content: [{ type: "text", text: "Set not found" }] };
     return { content: [{ type: "text", text: JSON.stringify(row) }] };
   }
 );
 
-// --- Tool: delete_set ---
 mcpServer.registerTool(
   "delete_set",
   {
@@ -206,14 +156,11 @@ mcpServer.registerTool(
     }),
   },
   async ({ set_id }) => {
-    db.delete(workout_exercises_details)
-      .where(eq(workout_exercises_details.id, set_id))
-      .run();
+    deleteSet(set_id);
     return { content: [{ type: "text", text: "Deleted" }] };
   }
 );
 
-// --- Transport ---
 const transport = new StreamableHTTPTransport();
 
 router.all("/", async (c) => {
